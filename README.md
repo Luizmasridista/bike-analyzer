@@ -17,15 +17,17 @@ Projeto de análise de mobilidade com dados do sistema de bicicletas compartilha
 ```bash
 python >= 3.10
 pip install -r requirements.txt
+# ou use um ambiente virtual (recomendado)
+# python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 ```
 
 ## Uso rápido
 Inicialize o banco, ingira metadados de estações, colete um snapshot de status e clima:
 ```bash
-python -m bike_analyzer.cli init-db
-python -m bike_analyzer.cli ingest-stations
-python -m bike_analyzer.cli ingest-status
-python -m bike_analyzer.cli ingest-weather --start -2d --end +2d
+PYTHONPATH=src python -m bike_analyzer.cli init-db
+PYTHONPATH=src python -m bike_analyzer.cli ingest-stations
+PYTHONPATH=src python -m bike_analyzer.cli ingest-status
+PYTHONPATH=src python -m bike_analyzer.cli ingest-weather --start -2d --end +2d
 ```
 As consultas sugeridas estão em `sql/queries.sql`. Abra o notebook para EDA.
 
