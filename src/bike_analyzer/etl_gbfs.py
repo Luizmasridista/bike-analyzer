@@ -23,8 +23,8 @@ def fetch_auto_discovery() -> dict[str, Any]:
 
 
 def _pick_feed_url(feeds: list[dict[str, Any]], feed_name: str) -> str | None:
-    # Prefer pt, then en, then first
-    lang_order = ["pt", "pt-BR", "en"]
+    # Prefer empty language (common), then en, then pt/pt-BR, then first match
+    lang_order = ["", "en", "pt", "pt-BR"]
     by_lang = {}
     for f in feeds:
         if f.get("name") == feed_name:
@@ -41,7 +41,19 @@ def _pick_feed_url(feeds: list[dict[str, Any]], feed_name: str) -> str | None:
 
 def fetch_stations_and_status() -> tuple[dict[str, Any], dict[str, Any]]:
     auto = fetch_auto_discovery()
+    # Try different structure patterns for feeds
     feeds = auto.get("data", {}).get("feeds", [])
+    if not feeds:
+        # Try nested structure like data.en.feeds
+        for lang_key in ["en", "pt", "pt-BR"]:
+            lang_data = auto.get("data", {}).get(lang_key, {})
+            if "feeds" in lang_data:
+                feeds = lang_data["feeds"]
+                break
+    
+    if not feeds:
+        raise RuntimeError("Nenhum feed encontrado na resposta GBFS")
+    
     station_info_url = _pick_feed_url(feeds, "station_information")
     station_status_url = _pick_feed_url(feeds, "station_status")
     if not station_info_url or not station_status_url:
