@@ -1,0 +1,10 @@
+pandas>=2.2
+requests>=2.32
+SQLAlchemy>=2.0
+pydantic>=2.8
+python-dateutil>=2.9
+jupyter>=1.0
+ipykernel>=6.29
+matplotlib>=3.9
+seaborn>=0.13
+folium>=0.17
