@@ -8,3 +8,5 @@ ipykernel>=6.29
 matplotlib>=3.9
 seaborn>=0.13
 folium>=0.17
+streamlit>=1.37
+pydeck>=0.9

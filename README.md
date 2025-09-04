@@ -31,6 +31,12 @@ PYTHONPATH=src python -m bike_analyzer.cli ingest-weather --start -2d --end +2d
 ```
 As consultas sugeridas estão em `sql/queries.sql`. Abra o notebook para EDA.
 
+### Dashboard (Streamlit)
+```bash
+pip install -r requirements.txt
+PYTHONPATH=src streamlit run streamlit_app.py
+```
+
 ## Ideias de análises
 - Utilização por estação (capacidade vs. bikes disponíveis)
 - Padrões por hora/dia da semana e sazonalidade
