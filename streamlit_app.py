@@ -15,6 +15,9 @@ import streamlit as st
 from bike_analyzer.config import CITY_LAT, CITY_LON
 from bike_analyzer.utils import get_stations, get_status_range, get_time_bounds
 from bike_analyzer.od_inference import infer_flows
+from bike_analyzer.db import init_db, get_engine
+from bike_analyzer.etl_gbfs import ingest_once
+from bike_analyzer.etl_weather import fetch_weather, load_weather_hourly
 
 st.set_page_config(page_title="Bike Analyzer – Porto Alegre", layout="wide")
 
@@ -29,6 +32,49 @@ def load_status_cached(start: Optional[str], end: Optional[str]):
 @st.cache_data(show_spinner=False)
 def get_bounds():
     return get_time_bounds()
+
+
+def check_data_exists() -> dict[str, int]:
+    """Verifica se há dados no banco."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        from sqlalchemy import text
+        try:
+            stations_count = conn.execute(text("SELECT COUNT(*) FROM stations")).scalar()
+            status_count = conn.execute(text("SELECT COUNT(*) FROM station_status")).scalar()
+            return {"stations": stations_count or 0, "status": status_count or 0}
+        except:
+            return {"stations": 0, "status": 0}
+
+
+def run_initial_ingest():
+    """Roda a ingestão inicial de dados."""
+    try:
+        # Inicializar banco se necessário
+        init_db()
+        
+        # Ingerir estações e status
+        with st.spinner("Coletando dados das estações BikePoA..."):
+            result = ingest_once()
+            st.success(f"✅ {result['stations_upserted']} estações, {result['status_rows']} snapshots coletados")
+        
+        # Ingerir clima dos últimos 2 dias
+        try:
+            with st.spinner("Coletando dados climáticos..."):
+                weather_data = fetch_weather("-2d", "+1d")
+                weather_rows = load_weather_hourly(weather_data)
+                st.success(f"✅ {weather_rows} registros de clima adicionados")
+        except Exception as e:
+            st.warning(f"⚠️ Clima falhou (opcional): {e}")
+        
+        # Limpar cache para recarregar dados
+        st.cache_data.clear()
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"❌ Erro na ingestão: {e}")
+        return False
+    return True
 
 
 def geocode_bairros(stations: pd.DataFrame) -> pd.DataFrame:
@@ -74,16 +120,48 @@ def geocode_bairros(stations: pd.DataFrame) -> pd.DataFrame:
 
 
 def header():
-    st.title("Bike Analyzer – Porto Alegre")
-    st.caption("Dash de uso do BikePoA (GBFS) + clima opcional")
+    st.title("🚲 Bike Analyzer – Porto Alegre")
+    st.caption("Dashboard de análise de mobilidade urbana com dados do BikePoA (GBFS) + clima")
+    
+    data_counts = check_data_exists()
+    if data_counts["stations"] == 0:
+        st.warning("👋 **Bem-vindo!** Este é seu primeiro acesso. Clique em '🚀 Carregar dados iniciais' na barra lateral para começar a análise.")
+    else:
+        st.info(f"📊 Analisando **{data_counts['stations']} estações** com **{data_counts['status']} snapshots** coletados.")
 
 
 def sidebar():
+    st.sidebar.header("Dados")
+    
+    # Verificar se há dados
+    data_counts = check_data_exists()
+    
+    if data_counts["stations"] == 0:
+        st.sidebar.error("🚫 Sem dados ainda")
+        if st.sidebar.button("🚀 Carregar dados iniciais", type="primary"):
+            run_initial_ingest()
+            return None
+        st.sidebar.markdown("---")
+        st.sidebar.info("Clique em 'Carregar dados iniciais' para começar!")
+        return None
+    else:
+        st.sidebar.success(f"✅ {data_counts['stations']} estações, {data_counts['status']} snapshots")
+        
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            if st.button("🔄 Atualizar", help="Coletar novo snapshot"):
+                run_initial_ingest()
+        with col2:
+            if st.button("🗑️ Limpar cache"):
+                st.cache_data.clear()
+                st.rerun()
+    
     st.sidebar.header("Filtros")
     tmin, tmax = get_bounds()
     if not tmin:
-        st.sidebar.warning("Sem dados de status ainda. Rode a ingestão no README.")
+        st.sidebar.warning("Sem dados de status ainda.")
         return None
+    
     start = st.sidebar.text_input("Início (YYYY-MM-DD HH:MM:SS)", value=str(tmin))
     end = st.sidebar.text_input("Fim (YYYY-MM-DD HH:MM:SS)", value=str(tmax))
     bucket = st.sidebar.select_slider("Janela para OD (min)", options=[5,10,15,20,30,60], value=10)
@@ -220,15 +298,26 @@ def tab_bikes(stations: pd.DataFrame, status: pd.DataFrame):
 # App
 header()
 filters = sidebar()
-stations = load_stations_cached()
-status = pd.DataFrame()
+
+# Só mostrar dashboard se há dados
 if filters:
+    stations = load_stations_cached()
     status = load_status_cached(filters["start"], filters["end"])
 
-tabs = st.tabs(["Bairros", "Trajetos", "Bikes"])
-with tabs[0]:
-    tab_bairros(stations, status)
-with tabs[1]:
-    tab_trajetos(stations, status, filters["bucket"] if filters else 10, filters["topn"] if filters else 50)
-with tabs[2]:
-    tab_bikes(stations, status)
+    tabs = st.tabs(["🏘️ Bairros", "🔄 Trajetos", "🚲 Bikes"])
+    with tabs[0]:
+        tab_bairros(stations, status)
+    with tabs[1]:
+        tab_trajetos(stations, status, filters["bucket"], filters["topn"])
+    with tabs[2]:
+        tab_bikes(stations, status)
+else:
+    # Placeholder quando não há dados
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.info("🏘️ **Bairros**\nHeatmap de uso por bairro (geocodificação OSM)")
+    with col2:
+        st.info("🔄 **Trajetos**\nFluxos OD estimados via matching temporal")
+    with col3:
+        st.info("🚲 **Bikes**\nHotspots de disponibilidade média")
